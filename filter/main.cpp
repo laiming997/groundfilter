@@ -57,7 +57,7 @@ int main(int argc, char const *argv[])
 	// my_pmf.setInitalDistance(0.5f);
 	// my_pmf.setMaxDistance(3.0f);
 	// my_pmf.extract(ground->indices);
-	CSF csf;
+	CSF csf;//布料滤波算法
 	std::vector<csf::Point> input_points;
 	for (int i = 0; i < cloud_in->size(); i++)
 	{
