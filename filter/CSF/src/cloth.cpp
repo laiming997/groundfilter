@@ -404,3 +404,331 @@ void cloth::saveMovableToFile(std::string path) {
 
     f1.close();
 }
+
+double cloth::timeStep(){
+    int particleCount = static_cast<int>(particles.size());
+    for (int i = 0; i < particleCount; i++)
+    {
+        particles[i].timeStep();
+    }//仅受重力时的位移，忽略粒子间相互作用
+    
+    for (int j = 0; j < particleCount; j++)
+    {
+        particles[j].satisfyConstraintSelf(constraint_iterations);
+    }//忽略重力，粒子间的相互约束
+    
+    double maxDiff = 0.0f;
+    for (int i = 0; i < particleCount; i++)
+    {
+        if(particles[i].isMovable())
+        {
+            double diff = fabs(particles[i].old_pos.f[1] - particles[i].pos.f[1]);
+            if( diff > maxDiff) maxDiff = diff;
+        }
+    }
+    
+    return maxDiff;
+}
+
+
+void cloth::addForce(const Vec3 direction)
+{
+    for (int i = 0; i < particles.size(); i++)
+    {
+        particles[i].addForce(direction);
+    }
+}
+
+void cloth::terrCollision(){
+    int particleCount = static_cast<int>(particles.size());
+    for (int i = 0; i < particleCount; i++)
+    {
+        Vec3 v = particles[i].getPos();
+        if (v.f[1] < heightvals[i])
+        {
+            particles[i].offsetPos(Vec3(0, heightvals[i] - v.f[1], 0));
+            particles[i].makeUnmovable();
+        } 
+    }
+}
+
+void cloth::movableFilter(){
+    std::vector<Particle> tmpParticles;
+    
+    for (int x = 0; x < num_particles_width; x++)
+    {
+        for(int y = 0; y < num_particles_height; y++)
+        {
+            Particle *ptc = getParticle(x, y);
+            if(ptc->isMovable() && ptc->isVisited)
+            {
+                std::queue<int> que;
+                std::vector<XY> connected;
+                std::vector<std::vector<int>> neibors;
+                int sum = 1;
+                int index = y * num_particles_width + x;
+                // visit the init node
+                connected.push_back(XY(x, y));
+                particles[index].isVisited = true;
+                // enqueue the init node
+                que.push(index);
+                while(!que.empty())
+                {
+                    Particle *ptc_f = &particles[que.front()];
+                    que.pop();
+                    int cur_x = ptc_f->pos_x;
+                    int cur_y = ptc_f->pos_y;
+                    std::vector<int> neibor;
+                    if(cur_x > 0)
+                    {
+                        Particle *ptc_left = getParticle(cur_x - 1, cur_y);
+                        if(ptc_left->isMovable())
+                        {
+                            if(!ptc_left->isVisited)
+                            {
+                                sum++;
+                                ptc_left->isVisited = true;
+                                connected.push_back(XY(cur_x - 1, cur_y));
+                                que.push(num_particles_width * cur_y + cur_x-1);
+                                neibor.push_back(sum - 1);
+                                ptc_left->c_pos = sum -1;
+                            }
+                            else neibor.push_back(ptc_left->c_pos);
+                        }
+                    }
+                    
+                    if(cur_x < num_particles_width -1)
+                    {
+                        Particle *ptc_right = getParticle(cur_x + 1, cur_y);
+                        if(ptc_right->isMovable())
+                        {
+                            if(!ptc_right->isVisited)
+                            {
+                                sum++;
+                                ptc_right->isVisited = true;
+                                connected.push_back(XY(cur_x + 1, cur_y));
+                                que.push(num_particles_width * cur_y + cur_x+1);
+                                neibor.push_back(sum - 1);
+                                ptc_right->c_pos = sum -1;
+                            }
+                            else neibor.push_back(ptc_right->c_pos);
+                        }
+                    }
+                    
+                    if(cur_y > 0)
+                    {
+                        Particle *ptc_bottom = getParticle(cur_x, cur_y - 1);
+                        if(ptc_bottom->isMovable())
+                        {
+                            if(!ptc_bottom->isVisited)
+                            {
+                                sum++;
+                                ptc_bottom->isVisited = true;
+                                connected.push_back(XY(cur_x, cur_y-1));
+                                que.push(num_particles_width * (cur_y - 1) + cur_x);
+                                neibor.push_back(sum - 1);
+                                ptc_bottom->c_pos = sum -1;
+                            }
+                            else neibor.push_back(ptc_bottom->c_pos);
+                        }
+                    }
+                    
+                    if(cur_y < num_particles_height - 1)
+                    {
+                        Particle *ptc_top = getParticle(cur_x, cur_y+1);
+                        if(ptc_top->isMovable())
+                        {
+                            if(!ptc_top->isVisited)
+                            {
+                                sum++;
+                                ptc_top->isVisited = true;
+                                connected.push_back(XY(cur_x,cur_y + 1));
+                                que.push(num_particles_width *(cur_y+1) + cur_x);
+                                neibor.push_back(sum - 1);
+                                ptc_top->c_pos = sum -1;
+                            }
+                            else neibor.push_back(ptc_top->c_pos);
+                        }
+                    }
+                    
+                    neibors.push_back(neibor);
+                }
+                
+                if(sum > MAX_PARTICLE_FOR_POSTPROCESSIN)
+                {
+                    std::vector<int>edgePoints = findUnmovablePoint(connected);
+                    handle_slop_connected(edgePoints, connected, neibors);
+                }
+            }
+        }
+    }
+}
+
+
+std::vector<int> cloth::findUnmovablePoint(std::vector<XY> connected)
+{
+    std::vector<int> edgePoints;
+    for (int i = 0; i < connected.size(); i++)
+    {
+        int x = connected[i].x;
+        int y = connected[i].y;
+        int index = y*num_particles_width + x;
+        Particle *ptc = getParticle(x, y);
+        if(x > 0)
+        {
+            Particle *ptc_x = getParticle(x-1, y);
+            if(!ptc_x->isMovable())
+            {
+                int index_ref = y * num_particles_width + x -1;
+                if(fabs(heightvals[index] - heightvals[index_ref]) < smoothThreshold && 
+                    ptc->getPos().f[1] - heightvals[index] < heightThreshold)
+                    {
+                        Vec3 offsetVec = Vec3(0, heightvals[index] - ptc->getPos().f[1], 0);
+                        particles[index].offsetPos(offsetVec);
+                        ptc->makeUnmovable();
+                        edgePoints.push_back(i);
+                        continue;
+                    }
+            }
+        }
+        
+        if(x < num_particles_width - 1)
+        {
+            Particle *ptc_x = getParticle(x + 1, y);
+            if (!ptc_x->isMovable())
+            {
+                int index_ref = y * num_particles_width + x +1;
+                if(fabs(heightvals[index] - heightvals[index_ref]) < smoothThreshold && 
+                    ptc->getPos().f[1] - heightvals[index] < heightThreshold)
+                    {
+                        Vec3 offsetVec = Vec3(0, heightvals[index] - ptc->getPos().f[1], 0);
+                        particles[index].offsetPos(offsetVec);
+                        ptc->makeUnmovable();
+                        edgePoints.push_back(i);
+                        continue;
+                    }
+            }
+            
+        }
+        
+        if( y>0 )
+        {
+            Particle *ptc_y = getParticle(x, y-1);
+            if (!ptc_y ->isMovable())
+            {
+                int index_ref = (y-1) * num_particles_width + x;
+                if (fabs(heightvals[index] - heightvals[index_ref]) < smoothThreshold && 
+                    ptc ->getPos().f[1] - heightvals[index] < heightThreshold)
+                {
+                    Vec3 offsetVec = Vec3(0, heightvals[index] - ptc->getPos().f[1], 0);
+                    particles[index].offsetPos(offsetVec);
+                    ptc ->makeUnmovable();
+                    edgePoints.push_back(i);
+                    continue;
+                }
+                
+            }
+            
+        }
+        
+        if( y < num_particles_height - 1)
+        {
+            Particle *ptc_y = getParticle(x,y+1);
+            if(!ptc_y->isMovable())
+            {
+                int index_ref = (y + 1)* num_particles_width + x;
+                if(fabs(heightvals[index] - heightvals[index_ref]) < smoothThreshold && 
+                    ptc->getPos().f[1] - heightvals[index] < heightThreshold)
+                    {
+                        Vec3 offsetVec = Vec3(0, heightvals[index] - ptc->getPos().f[1], 0);
+                        particles[index].offsetPos(offsetVec);
+                        ptc ->makeUnmovable();
+                        edgePoints.push_back(i);
+                        continue;
+                    }
+            }
+        }
+    }
+    return edgePoints;
+}
+
+void cloth::handle_slop_connected(std::vector<int> edgePoints, std::vector<XY> connected, std::vector<std::vector<int>> neibors)
+{
+    std::vector<bool> visited;
+    for (int i = 0; i < connected.size(); i++)      visited.push_back(false);
+    
+    std::queue<int> que;
+    for (int i = 0; i < edgePoints.size(); i++)
+    {
+        que.push(edgePoints[i]);
+        visited[edgePoints[i]] = true;
+    }
+    
+    while(!que.empty())
+    {
+        int index = que.front();
+        que.pop();
+        int index_center = connected[index].y * num_particles_width + connected[index].x;
+        for(int i = 0; i < neibors.size(); i++)
+        {
+            int index_neibor = connected[neibors[index][i]].y * num_particles_width + connected[neibors[index][i]].x;
+            if(fabs(heightvals[index_center] - heightvals[index_neibor]) < smoothThreshold && 
+                fabs(particles[index_neibor].getPos().f[1] - heightvals[index_neibor]) < heightThreshold)
+                {
+                    Vec3 offsetVec = Vec3(0, heightvals[index_neibor] - particles[index_neibor].getPos().f[1], 0);
+                    particles[index_neibor].offsetPos(offsetVec);
+                    particles[index_neibor].makeUnmovable();
+                    if(visited[neibors[index][i]] == false)
+                    {
+                        que.push(neibors[index][i]);
+                        visited[neibors[index][i]] = true;
+                    }
+                }
+        }
+    }
+}
+
+void cloth::saveToFile(std::string path) {
+    std::string filepath = "cloth_nodes.txt";
+
+    if (path == "") {
+        filepath = "cloth_nodes.txt";
+    } else {
+        filepath = path;
+    }
+
+    std::ofstream f1(filepath.c_str());
+
+    if (!f1)
+        return;
+
+    for (std::size_t i = 0; i < particles.size(); i++) {
+        f1 << std::fixed << std::setprecision(8) << particles[i].getPos().f[0] << "	"<< particles[i].getPos().f[2] << "	"<< -particles[i].getPos().f[1] << std::endl;
+    }
+
+    f1.close();
+}
+
+void cloth::saveMovableToFile(std::string path) {
+    std::string filepath = "cloth_movable.txt";
+
+    if (path == "") {
+        filepath = "cloth_movable.txt";
+    } else {
+        filepath = path;
+    }
+
+    std::ofstream f1(filepath.c_str());
+
+    if (!f1)
+        return;
+
+    for (std::size_t i = 0; i < particles.size(); i++) {
+        if (particles[i].isMovable()) {
+            f1 << std::fixed << std::setprecision(8) << particles[i].getPos().f[0] << "	"
+                << particles[i].getPos().f[2] << "	"<< -particles[i].getPos().f[1] << std::endl;
+        }
+    }
+
+    f1.close();
+}
