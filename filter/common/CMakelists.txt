@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.16)
+set(CMAKE_CXX_STANDARD 11)
+SET(MODULE_NAME common)
+
+find_package(PCL 1.9.1 REQUIRED)
+include_directories(${PCL_INCLUDE_DIRS})
+link_directories(${PCL_LIBRARY_DIRS})
+add_definitions(${PCL_DEFINITIONS})
+
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/src Srcfile)
+
+add_library(${MODULE_NAME} STATIC ${Srcfile})
+target_link_libraries(${MODULE_NAME} ${PCL_LIBRARIES})
+

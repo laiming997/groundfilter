@@ -1,0 +1,21 @@
+cmake_minimum_required(VERSION 3.16)
+project(GroundFilter CXX)
+set(CMAKE_CXX_STANDARD 11)
+
+#添加子目录
+add_subdirectory(./common)
+add_subdirectory(./ProgressiveMorphological)
+add_subdirectory(./CSF)
+#pcl库相关
+find_package(PCL 1.9.1 REQUIRED)
+include_directories(${PCL_INCLUDE_DIRS})
+link_directories(${PCL_LIBRARY_DIRS})
+add_definitions(${PCL_DEFINITIONS})
+
+SET(LIBS 
+    common
+    morphological
+    csf
+)
+add_executable(GroundFilter  main.cpp)
+target_link_libraries(GroundFilter ${PCL_LIBRARIES} ${LIBS})
