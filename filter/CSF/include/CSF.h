@@ -4,7 +4,7 @@
 #include <string>
 #include <iostream>
 #include "point_cloud.h"
-
+#include "cloth.h"
 namespace csf{
 struct Params {
     // refer to the website:http://ramm.bnu.edu.cn/projects/CSF/ for the setting of these paramters
@@ -49,12 +49,16 @@ public:
         return point_cloud.size();
     }
     
-
+    void calCloud2CloudDist(cloth           & cloth_in,
+                            csf::PointCloud & pc,
+                            std::vector<int>& groundIndexes,
+                            std::vector<int>& offGroundIndexes);
     // The results are index of ground points in the original
     // pointcloud
     void do_filtering(std::vector<int>& groundIndexes,
                     std::vector<int>& offGroundIndexes,
                     bool              exportCloth = false);
+                    
 public:
     csf::Params params;
     int index;

@@ -1,6 +1,7 @@
 #include "CSF.h"
 #include "Vec3.h"
 #include "cloth.h"
+#include "Rasterization.h"
 #include <fstream>
 #include <iostream>
 CSF::CSF(int index) {
@@ -111,7 +112,77 @@ void CSF::do_filtering(std::vector<int>& groundIndexes,
     params.time_step
     );
     
+    std::printf("[%d]Rasterizing...\n",this->index);
+    Rasterization::RasterTerrian(csf_cloth, point_cloud, csf_cloth.getHeightvals());
+    double time_step2 = params.time_step * params.time_step;
+    double gravity = 0.2;
+    std::printf("[%d]Simulating...\n",this->index);
+    csf_cloth.addForce(Vec3(0, -gravity, 0) * time_step2);
+    for (int i = 0; i < params.interations; i++)
+    {
+        double maxDiff = csf_cloth.timeStep();
+        std::printf("    interation[%d] ... max diff:%f\n",i,maxDiff);
+        csf_cloth.terrCollision();
+        if(maxDiff != 0 && maxDiff < 0.005)
+        {
+            break;
+        }
+    }
+    if(params.bSloopSmooth)
+    {
+        std::printf("[%d] - post handle...\n",this->index);
+        csf_cloth.movableFilter();
+    }
+    if(exportCloth)     csf_cloth.saveToFile();
+    calCloud2CloudDist(csf_cloth, point_cloud, groundIndexes, offGroundIndexes);
 }
+
+void CSF::calCloud2CloudDist(cloth          & cloth_in,
+                            csf::PointCloud & pc,
+                            std::vector<int>& groundIndexes,
+                            std::vector<int>& offGroundIndexes)
+{
+    groundIndexes.resize(0);
+    offGroundIndexes.resize(0);
+    for (int i = 0; i < pc.size(); i++)
+    {
+        double pc_x = pc[i].x;
+        double pc_z = pc[i].z;
+        
+        double deltaX = pc_x - cloth_in.origin_pos.f[0];
+        double deltaZ = pc_z - cloth_in.origin_pos.f[2];
+        
+        int col0 = int(deltaX / cloth_in.step_x);
+        int row0 = int(deltaZ / cloth_in.step_y);
+        int col1 = col0 + 1;
+        int row1 = row0;
+        int col2 = col0 + 1;
+        int row2 = row0 + 1;
+        int col3 = col0;
+        int row3 = row0 + 1;
+        
+        double subdeltaX = (deltaX - col0 * cloth_in.step_x) / cloth_in.step_x;
+        double subdeltaZ = (deltaZ - row0 * cloth_in.step_y) / cloth_in.step_y;
+
+        double fxy= 
+                cloth_in.getParticle(col0, row0)->pos.f[1] * (1 - subdeltaX) * (1 - subdeltaZ) +
+                cloth_in.getParticle(col3, row3)->pos.f[1] * (1 - subdeltaX) * subdeltaZ +
+                cloth_in.getParticle(col2, row2)->pos.f[1] * subdeltaX * subdeltaZ +
+                cloth_in.getParticle(col1, row1)->pos.f[1] * subdeltaX * (1 - subdeltaZ);
+        double height_var = fxy - pc[i].y;
+
+        if (std::fabs(height_var) < params.class_threshold)
+        {
+            groundIndexes.push_back(i);
+        } 
+        else 
+        {
+            offGroundIndexes.push_back(i);
+        }
+    }
+    
+}
+
 
 
 void CSF::savePoints(std::vector<int> grp, std::string path) {

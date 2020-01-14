@@ -69,6 +69,13 @@ int main(int argc, char const *argv[])
 	}
 	csf.setPointCloud(input_points);
 	std::vector<int> groundIndexes, offGroundIndexes;
+	csf.params.bSloopSmooth = true;
+	csf.params.class_threshold = 0.5;
+	csf.params.cloth_resolution = 0.5;
+	csf.params.interations = 500;
+	csf.params.rigidness = 3;
+	csf.params.time_step = 0.65;
 	csf.do_filtering(groundIndexes, offGroundIndexes, true);
+	system("PAUSE");
     return 0;
 }
