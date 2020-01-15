@@ -15,30 +15,32 @@
 // limitations under the License.
 // ======================================================================================
 
-#ifndef _KNN_H_
-#define _KNN_H_
+#ifndef _C2CDIST_H_
+#define _C2CDIST_H_
 
-#include "point_cloud.h"
+
 #include "Cloth.h"
-
-#define SQUARE_DIST(x1, y1, x2, y2) \
-    (((x1) - (x2)) * ((x1) - (x2)) + ((y1) - (y2)) * ((y1) - (y2)))
+#include "point_cloud.h"
 
 
-class Rasterization {
+class c2cdist {
 public:
 
-    Rasterization() {}
-    ~Rasterization() {}
+    c2cdist(double threshold) : class_treshold(threshold) {}
 
-    // for a cloth particle, if no corresponding lidar point are found.
-    // the heightval are set as its neighbor's
-    double static findHeightValByNeighbor(Particle *p, Cloth& cloth);
-    double static findHeightValByScanline(Particle *p, Cloth& cloth);
+    ~c2cdist() {}
 
-    void static   RasterTerrian(Cloth          & cloth,
-                                csf::PointCloud& pc,
-                                std::vector<double> & heightVal);
+public:
+
+    void calCloud2CloudDist(Cloth           & cloth,
+                            csf::PointCloud & pc,
+                            std::vector<int>& groundIndexes,
+                            std::vector<int>& offGroundIndexes);
+
+private:
+
+    double class_treshold; //
 };
 
-#endif // ifndef _KNN_H_
+
+#endif // ifndef _C2CDIST_H_

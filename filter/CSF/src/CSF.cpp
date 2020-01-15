@@ -1,9 +1,31 @@
+// ======================================================================================
+// Copyright 2017 State Key Laboratory of Remote Sensing Science, 
+// Institute of Remote Sensing Science and Engineering, Beijing Normal University
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+
+//     http://www.apache.org/licenses/LICENSE-2.0
+
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// ======================================================================================
+
+#define DLL_IMPLEMENT
+
 #include "CSF.h"
+#include "XYZReader.h"
 #include "Vec3.h"
-#include "cloth.h"
+#include "Cloth.h"
 #include "Rasterization.h"
+#include "c2cdist.h"
 #include <fstream>
 #include <iostream>
+
 CSF::CSF(int index) {
     params.bSloopSmooth     = true;
     params.time_step        = 0.65;
@@ -67,123 +89,103 @@ void CSF::setPointCloud(csf::PointCloud& pc) {
     }
 }
 
+void CSF::setPointCloud(std::vector<std::vector<float> > points) {
+    point_cloud.resize(points.size());
+    int pointCount = static_cast<int>(points.size());
+    //#pragma omp parallel for
+    for (int i = 0; i < pointCount; i++) {
+        csf::Point las;
+        las.x          = points[i][0];
+        las.y          = -points[i][2];
+        las.z          = points[i][1];
+        point_cloud[i] = las;
+    }
+}
 
-void CSF::do_filtering(std::vector<int>& groundIndexes,
+void CSF::readPointsFromFile(std::string filename) {
+    this->point_cloud.resize(0);
+    read_xyz(filename, this->point_cloud);
+}
+
+
+void CSF::do_filtering( std::vector<int>& groundIndexes,
                         std::vector<int>& offGroundIndexes,
                         bool              exportCloth) {
     // Terrain
     std::cout << "[" << this->index << "] Configuring terrain..." << std::endl;
     csf::Point bbMin, bbMax;
     point_cloud.computeBoundingBox(bbMin, bbMax);//找到点云三维坐标的最大值和最小值
-    std::printf("bbmin:[%f,%f,%f]\n",bbMin.u[0],bbMin.u[1],bbMin.u[2]);
-    std::printf("bbMax:[%f,%f,%f]\n",bbMax.u[0],bbMax.u[1],bbMax.u[2]);
-
+    std::cout<<"bbmin:["<< bbMin.u[0] <<","<<bbMin.u[1]<<","<<bbMin.u[2]<<std::endl;
+    std::cout<<"bbMax:["<< bbMax.u[0] <<","<<bbMax.u[1]<<","<<bbMax.u[2]<<std::endl;
     double cloth_y_height = 0.05;
     
     int  clothbuffer_d = 2;
-    Vec3 origin_pos(
-        bbMin.x - clothbuffer_d *params.cloth_resolution,
-        bbMax.y + cloth_y_height,//保证高于高程最大的值
-        bbMin.z - clothbuffer_d *params.cloth_resolution
-    );
-    
-    std::printf("origin_pos:[%f,%f,%f]\n",origin_pos.f[0],origin_pos.f[1],origin_pos.f[2]);
+    // Vec3 origin_pos(
+    //     bbMin.x - clothbuffer_d, //*params.cloth_resolution,
+    //     bbMax.y + cloth_y_height,//保证高于高程最大的值
+    //     bbMin.z - clothbuffer_d //*params.cloth_resolution
+    // );
+    Vec3 origin_pos(bbMin.x - clothbuffer_d*params.cloth_resolution, 
+                    bbMax.y + cloth_y_height , 
+                    bbMin.z - clothbuffer_d*params.cloth_resolution);
+    std::cout<<"origin_pos:["<< origin_pos.f[0] <<","<<origin_pos.f[1]<<","<<origin_pos.f[2]<<std::endl;
     int width_num = static_cast<int>(
         std::floor((bbMax.x - bbMin.x) / params.cloth_resolution)
     ) + 2 * clothbuffer_d;
 
     int height_num = static_cast<int>(
         std::floor((bbMax.z - bbMin.z) / params.cloth_resolution)
-    ) + 2 * clothbuffer_d;   
-    
+    ) + 2 * clothbuffer_d;
+
     std::cout << "[" << this->index << "] Configuring cloth..." << std::endl;
     std::cout << "[" << this->index << "]  - width: " << width_num << " "
         << "height: " << height_num << std::endl;
-        
-    cloth csf_cloth(
-    origin_pos,
-    width_num,
-    height_num,
-    params.cloth_resolution,
-    params.cloth_resolution,
-    0.3,
-    9999,
-    params.rigidness,
-    params.time_step
+
+    Cloth cloth(
+        origin_pos,
+        width_num,
+        height_num,
+        params.cloth_resolution,
+        params.cloth_resolution,
+        0.3,
+        9999,
+        params.rigidness,
+        params.time_step
     );
-    
-    std::printf("[%d]Rasterizing...\n",this->index);
-    Rasterization::RasterTerrian(csf_cloth, point_cloud, csf_cloth.getHeightvals());
+
+    std::cout << "[" << this->index << "] Rasterizing..." << std::endl;
+    Rasterization::RasterTerrian(cloth, point_cloud, cloth.getHeightvals());
+
     double time_step2 = params.time_step * params.time_step;
-    double gravity = 0.2;
-    std::printf("[%d]Simulating...\n",this->index);
-    csf_cloth.addForce(Vec3(0, -gravity, 0) * time_step2);
-    for (int i = 0; i < params.interations; i++)
-    {
-        double maxDiff = csf_cloth.timeStep();
+    double gravity    = 0.2;
+
+    std::cout << "[" << this->index << "] Simulating..." << std::endl;
+    cloth.addForce(Vec3(0, -gravity, 0) * time_step2);
+
+    // boost::progress_display pd(params.interations);
+    for (int i = 0; i < params.interations; i++) {
+        double maxDiff = cloth.timeStep();
+        cloth.terrCollision();
         std::printf("    interation[%d] ... max diff:%f\n",i,maxDiff);
-        csf_cloth.terrCollision();
-        if(maxDiff != 0 && maxDiff < 0.005)
-        {
+		//params.class_threshold / 100
+        if ((maxDiff != 0) && (maxDiff < 0.005)) {
+            // early stop
             break;
         }
+        // pd++;
     }
-    if(params.bSloopSmooth)
-    {
-        std::printf("[%d] - post handle...\n",this->index);
-        csf_cloth.movableFilter();
+
+    if (params.bSloopSmooth) {
+        std::cout << "[" << this->index << "]  - post handle..." << std::endl;
+        cloth.movableFilter();
     }
-    if(exportCloth)     csf_cloth.saveToFile();
-    calCloud2CloudDist(csf_cloth, point_cloud, groundIndexes, offGroundIndexes);
+
+    if (exportCloth)
+        cloth.saveToFile();
+
+    c2cdist c2c(params.class_threshold);
+    c2c.calCloud2CloudDist(cloth, point_cloud, groundIndexes, offGroundIndexes);
 }
-
-void CSF::calCloud2CloudDist(cloth          & cloth_in,
-                            csf::PointCloud & pc,
-                            std::vector<int>& groundIndexes,
-                            std::vector<int>& offGroundIndexes)
-{
-    groundIndexes.resize(0);
-    offGroundIndexes.resize(0);
-    for (int i = 0; i < pc.size(); i++)
-    {
-        double pc_x = pc[i].x;
-        double pc_z = pc[i].z;
-        
-        double deltaX = pc_x - cloth_in.origin_pos.f[0];
-        double deltaZ = pc_z - cloth_in.origin_pos.f[2];
-        
-        int col0 = int(deltaX / cloth_in.step_x);
-        int row0 = int(deltaZ / cloth_in.step_y);
-        int col1 = col0 + 1;
-        int row1 = row0;
-        int col2 = col0 + 1;
-        int row2 = row0 + 1;
-        int col3 = col0;
-        int row3 = row0 + 1;
-        
-        double subdeltaX = (deltaX - col0 * cloth_in.step_x) / cloth_in.step_x;
-        double subdeltaZ = (deltaZ - row0 * cloth_in.step_y) / cloth_in.step_y;
-
-        double fxy= 
-                cloth_in.getParticle(col0, row0)->pos.f[1] * (1 - subdeltaX) * (1 - subdeltaZ) +
-                cloth_in.getParticle(col3, row3)->pos.f[1] * (1 - subdeltaX) * subdeltaZ +
-                cloth_in.getParticle(col2, row2)->pos.f[1] * subdeltaX * subdeltaZ +
-                cloth_in.getParticle(col1, row1)->pos.f[1] * subdeltaX * (1 - subdeltaZ);
-        double height_var = fxy - pc[i].y;
-
-        if (std::fabs(height_var) < params.class_threshold)
-        {
-            groundIndexes.push_back(i);
-        } 
-        else 
-        {
-            offGroundIndexes.push_back(i);
-        }
-    }
-    
-}
-
-
 
 void CSF::savePoints(std::vector<int> grp, std::string path) {
     if (path == "") {

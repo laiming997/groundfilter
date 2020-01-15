@@ -15,30 +15,31 @@
 // limitations under the License.
 // ======================================================================================
 
-#ifndef _KNN_H_
-#define _KNN_H_
-
-#include "point_cloud.h"
-#include "Cloth.h"
-
-#define SQUARE_DIST(x1, y1, x2, y2) \
-    (((x1) - (x2)) * ((x1) - (x2)) + ((y1) - (y2)) * ((y1) - (y2)))
+#include "XYZReader.h"
+#include <sstream>
+#include <iostream>
+#include <iomanip>
+#include <fstream>
+#include <cstdlib>
 
 
-class Rasterization {
-public:
+void read_xyz(std::string fname, csf::PointCloud& pointcloud) {
+    std::ifstream fin(fname.c_str(), std::ios::in);
+    char     line[500];
+    std::string   x, y, z;
 
-    Rasterization() {}
-    ~Rasterization() {}
+    while (fin.getline(line, sizeof(line))) {
+        std::stringstream words(line);
 
-    // for a cloth particle, if no corresponding lidar point are found.
-    // the heightval are set as its neighbor's
-    double static findHeightValByNeighbor(Particle *p, Cloth& cloth);
-    double static findHeightValByScanline(Particle *p, Cloth& cloth);
+        words >> x;
+        words >> y;
+        words >> z;
 
-    void static   RasterTerrian(Cloth          & cloth,
-                                csf::PointCloud& pc,
-                                std::vector<double> & heightVal);
-};
+        csf::Point point;
+        point.x = atof(x.c_str());
+        point.y = -atof(z.c_str());
+        point.z = atof(y.c_str());
 
-#endif // ifndef _KNN_H_
+        pointcloud.push_back(point);
+    }
+}
